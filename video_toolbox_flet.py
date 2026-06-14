@@ -395,16 +395,16 @@ def main(page: ft.Page):
             ]))
         safe_update()
 
-    def pick_files_result(e: ft.FilePickerResultEvent):
+    def pick_files_result(e: ft.FilePickerResult):
         if e.files: add_files_to_list([f.path for f in e.files])
 
-    def pick_folder_result(e: ft.FilePickerResultEvent):
+    def pick_folder_result(e: ft.FilePickerResult):
         if e.path:
             exts = {'.mp4', '.mov', '.avi', '.mkv'}
             add_files_to_list([str(p) for p in sorted(Path(e.path).iterdir())
                                if p.suffix.lower() in exts])
 
-    def pick_output_result(e: ft.FilePickerResultEvent):
+    def pick_output_result(e: ft.FilePickerResult):
         if e.path:
             nonlocal output_dir
             output_dir = e.path
@@ -633,7 +633,7 @@ def main(page: ft.Page):
         dl_status.value = "已停止"
         safe_update()
 
-    def pick_dl_dir_result(e: ft.FilePickerResultEvent):
+    def pick_dl_dir_result(e: ft.FilePickerResult):
         if e.path: dl_output_field.value = e.path; safe_update()
 
     dl_dir_picker = ft.FilePicker()
@@ -644,7 +644,7 @@ def main(page: ft.Page):
     # Tab 3: 语音转文字 — callbacks (Whisper)
     # ═══════════════════════════════════════════════
 
-    def pick_extract_result(e: ft.FilePickerResultEvent):
+    def pick_extract_result(e: ft.FilePickerResult):
         if e.files:
             extract_video_path[0] = e.files[0].path
             extract_file_text.value = e.files[0].name
@@ -916,7 +916,7 @@ def main(page: ft.Page):
         content_padding=ft.Padding(left=12, right=12, top=8, bottom=8),
     )
 
-    def pick_img_dir_result(e: ft.FilePickerResultEvent):
+    def pick_img_dir_result(e: ft.FilePickerResult):
         if e.path:
             img_out_dir[0] = e.path
             img_path_field.value = e.path
