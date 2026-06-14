@@ -23,6 +23,24 @@ def _save_users(users):
 def _hash(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
+_CFG_FILE = os.path.join(_USER_DIR, "config.json")
+
+def _load_cfg():
+    if os.path.exists(_CFG_FILE):
+        with open(_CFG_FILE) as f: return json.load(f)
+    return {}
+
+def _save_cfg(cfg):
+    with open(_CFG_FILE, "w") as f: json.dump(cfg, f)
+
+def _get_cfg(key, default=None):
+    return _load_cfg().get(key, default)
+
+def _set_cfg(key, val):
+    cfg = _load_cfg()
+    cfg[key] = val
+    _save_cfg(cfg)
+
 # 仅在 PyInstaller 打包后（Windows EXE 环境）绕过 SSL 证书问题
 # 开发环境保留 SSL 验证确保安全
 import ssl
@@ -1305,8 +1323,9 @@ def auth_page(page: ft.Page):
     BG_SURFACE = "#191A1B"
     BORDER = "#23252A"
 
-    is_login = [True]  # login or register
+    is_login = [True]
     phone = ft.TextField(label="手机号", hint_text="输入11位手机号", width=320,
+        value=_get_cfg("last_phone", ""),
         bgcolor=BG_SURFACE, border_color=BORDER, border_radius=8, text_size=14)
     password = ft.TextField(label="密码", password=True, can_reveal_password=True,
         hint_text="6位以上密码", width=320,
@@ -1314,6 +1333,8 @@ def auth_page(page: ft.Page):
     confirm_pw = ft.TextField(label="确认密码", password=True, visible=False,
         hint_text="再次输入密码", width=320,
         bgcolor=BG_SURFACE, border_color=BORDER, border_radius=8, text_size=14)
+    remember_me = ft.Checkbox(label="记住密码，下次自动登录", value=True,
+        fill_color=ACCENT, check_color="white")
     status = ft.Text("", size=13, color="#F87171")
     title_text = ft.Text("登录", size=24, weight="bold", color="#F7F8F8")
     subtitle = ft.Text("电商工具箱", size=14, color="#8A8F98")
@@ -1336,6 +1357,8 @@ def auth_page(page: ft.Page):
             if ph not in users or users[ph] != _hash(pw):
                 status.value = "手机号或密码错误"
                 page.update(); return
+            if remember_me.value:
+                _set_cfg("last_phone", ph)
             status.value = "✅ 登录成功"
             status.color = "#34D399"
             page.update()
@@ -1380,6 +1403,7 @@ def auth_page(page: ft.Page):
                 phone,
                 password,
                 confirm_pw,
+                remember_me,
                 action_btn,
                 status,
                 ft.Container(height=20),
