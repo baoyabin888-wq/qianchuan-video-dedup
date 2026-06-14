@@ -9,21 +9,18 @@ from pathlib import Path
 _USER_DIR = os.path.join(os.path.expanduser("~"), ".电商工具箱")
 os.makedirs(_USER_DIR, exist_ok=True)
 _USERS_FILE = os.path.join(_USER_DIR, "users.json")
+_CFG_FILE = os.path.join(_USER_DIR, "config.json")
 
 def _load_users():
     if os.path.exists(_USERS_FILE):
-        with open(_USERS_FILE) as f:
-            return json.load(f)
+        with open(_USERS_FILE) as f: return json.load(f)
     return {}
 
 def _save_users(users):
-    with open(_USERS_FILE, "w") as f:
-        json.dump(users, f)
+    with open(_USERS_FILE, "w") as f: json.dump(users, f)
 
 def _hash(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
-
-_CFG_FILE = os.path.join(_USER_DIR, "config.json")
 
 def _load_cfg():
     if os.path.exists(_CFG_FILE):
@@ -40,6 +37,26 @@ def _set_cfg(key, val):
     cfg = _load_cfg()
     cfg[key] = val
     _save_cfg(cfg)
+
+_CFG_FILE = os.path.join(_USER_DIR, "config.json")
+
+def _load_cfg():
+    if os.path.exists(_CFG_FILE):
+        with open(_CFG_FILE) as f:
+            return json.load(f)
+    return {}
+
+def _save_cfg(cfg):
+    with open(_CFG_FILE, "w") as f:
+        json.dump(cfg, f)
+
+def _save_config_val(key, val):
+    cfg = _load_cfg()
+    cfg[key] = val
+    _save_cfg(cfg)
+
+def _get_config_val(key, default=""):
+    return _load_cfg().get(key, default)
 
 # 仅在 PyInstaller 打包后（Windows EXE 环境）绕过 SSL 证书问题
 # 开发环境保留 SSL 验证确保安全
@@ -413,16 +430,16 @@ def main(page: ft.Page):
             ]))
         safe_update()
 
-    def pick_files_result(e: ft.FilePickerResult):
+    def pick_files_result(e: ft.FilePickerResultEvent):
         if e.files: add_files_to_list([f.path for f in e.files])
 
-    def pick_folder_result(e: ft.FilePickerResult):
+    def pick_folder_result(e: ft.FilePickerResultEvent):
         if e.path:
             exts = {'.mp4', '.mov', '.avi', '.mkv'}
             add_files_to_list([str(p) for p in sorted(Path(e.path).iterdir())
                                if p.suffix.lower() in exts])
 
-    def pick_output_result(e: ft.FilePickerResult):
+    def pick_output_result(e: ft.FilePickerResultEvent):
         if e.path:
             nonlocal output_dir
             output_dir = e.path
@@ -651,7 +668,7 @@ def main(page: ft.Page):
         dl_status.value = "已停止"
         safe_update()
 
-    def pick_dl_dir_result(e: ft.FilePickerResult):
+    def pick_dl_dir_result(e: ft.FilePickerResultEvent):
         if e.path: dl_output_field.value = e.path; safe_update()
 
     dl_dir_picker = ft.FilePicker()
@@ -662,7 +679,7 @@ def main(page: ft.Page):
     # Tab 3: 语音转文字 — callbacks (Whisper)
     # ═══════════════════════════════════════════════
 
-    def pick_extract_result(e: ft.FilePickerResult):
+    def pick_extract_result(e: ft.FilePickerResultEvent):
         if e.files:
             extract_video_path[0] = e.files[0].path
             extract_file_text.value = e.files[0].name
@@ -934,7 +951,7 @@ def main(page: ft.Page):
         content_padding=ft.Padding(left=12, right=12, top=8, bottom=8),
     )
 
-    def pick_img_dir_result(e: ft.FilePickerResult):
+    def pick_img_dir_result(e: ft.FilePickerResultEvent):
         if e.path:
             img_out_dir[0] = e.path
             img_path_field.value = e.path
@@ -1285,20 +1302,6 @@ def main(page: ft.Page):
             ft.VerticalDivider(width=1, color=BORDER),
             ft.Container(
                 content=ft.Column([
-                    ft.Container(
-                        content=ft.Row([
-                            ft.Container(width=6, height=6, bgcolor=ACCENT, border_radius=3),
-                            ft.Text("电商工具箱", size=14, weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
-                            ft.Container(expand=True),
-                            ft.Container(
-                                content=ft.Text("v3.2", size=11, color=TEXT_MUTED),
-                                bgcolor=BG_SURFACE, border_radius=6,
-                                padding=ft.Padding(left=8, top=3, right=8, bottom=3),
-                            ),
-                        ]),
-                        padding=ft.Padding(left=16, top=10, right=16, bottom=10),
-                        bgcolor="#08090A",
-                    ),
                     ft.Column([content_area], scroll=ft.ScrollMode.AUTO, expand=True),
                 ]),
                 expand=True,
@@ -1306,26 +1309,95 @@ def main(page: ft.Page):
         ], expand=True)
     )
 
+    # 未登录 → 弹窗
+    if not _get_cfg("last_phone"):
+        show_login_dialog(page)
+
 
 # ═══════════════════════════════════════════════════════
-# 登录 / 注册页面
+# 登录对话框
 # ═══════════════════════════════════════════════════════
 
-def auth_page(page: ft.Page):
-    page.title = "电商工具箱 — 登录"
-    page.window.width = 440
-    page.window.height = 600
-    page.padding = 0
-    page.bgcolor = "#08090A"
-    page.theme_mode = ft.ThemeMode.DARK
-
+def show_login_dialog(page: ft.Page):
     ACCENT = "#6366F1"
     BG_SURFACE = "#191A1B"
     BORDER = "#23252A"
 
     is_login = [True]
-    phone = ft.TextField(label="手机号", hint_text="输入11位手机号", width=320,
+    phone = ft.TextField(label="手机号", hint_text="11位手机号", width=280,
         value=_get_cfg("last_phone", ""),
+        bgcolor=BG_SURFACE, border_color=BORDER, border_radius=8, text_size=14)
+    password = ft.TextField(label="密码", password=True, can_reveal_password=True,
+        hint_text="6位以上密码", width=280,
+        bgcolor=BG_SURFACE, border_color=BORDER, border_radius=8, text_size=14)
+    confirm_pw = ft.TextField(label="确认密码", password=True, visible=False,
+        hint_text="再次输入密码", width=280,
+        bgcolor=BG_SURFACE, border_color=BORDER, border_radius=8, text_size=14)
+    remember_me = ft.Checkbox(label="记住密码，下次自动登录", value=True,
+        fill_color=ACCENT, check_color="white")
+    status = ft.Text("", size=13, color="#F87171")
+    title = ft.Text("登录", size=22, weight="bold", color="#F7F8F8")
+    toggle_btn = ft.TextButton("没有账号？去注册")
+
+    def toggle(e):
+        is_login[0] = not is_login[0]
+        title.value = "登录" if is_login[0] else "注册"
+        confirm_pw.visible = not is_login[0]
+        toggle_btn.text = "没有账号？去注册" if is_login[0] else "已有账号？去登录"
+        status.value = ""
+        page.update()
+
+    def do_action(e):
+        ph = phone.value.strip()
+        pw = password.value.strip()
+        if not re.match(r'^1[3-9]\d{9}$', ph):
+            status.value = "请输入正确的手机号"; page.update(); return
+        if len(pw) < 6:
+            status.value = "密码至少6位"; page.update(); return
+        users = _load_users()
+        if is_login[0]:
+            if ph not in users or users[ph] != _hash(pw):
+                status.value = "手机号或密码错误"; page.update(); return
+            if remember_me.value:
+                _set_cfg("last_phone", ph)
+            page.dialog.open = False
+            page.update()
+        else:
+            if ph in users:
+                status.value = "该手机号已注册"; page.update(); return
+            if pw != confirm_pw.value:
+                status.value = "两次密码不一致"; page.update(); return
+            users[ph] = _hash(pw)
+            _save_users(users)
+            status.value = "✅ 注册成功"; status.color = "#34D399"
+            page.update(); toggle(None)
+
+    toggle_btn.on_click = toggle
+    dlg = ft.AlertDialog(
+        title=ft.Row([title], alignment=ft.MainAxisAlignment.CENTER),
+        content=ft.Column([
+            phone, password, confirm_pw, remember_me, status,
+        ], spacing=12, width=320),
+        actions=[
+            toggle_btn,
+            ft.ElevatedButton("登 录", bgcolor=ACCENT, color="white", on_click=do_action, width=280, height=44),
+        ],
+    )
+    page.dialog = dlg
+    dlg.open = True
+    page.update()
+
+
+if __name__ == "__main__":
+    ft.app(target=main)
+
+    ACCENT = "#6366F1"
+    BG_SURFACE = "#191A1B"
+    BORDER = "#23252A"
+
+    is_login = [True]  # login or register
+    phone = ft.TextField(label="手机号", hint_text="输入11位手机号", width=320,
+        value=_get_config_val("last_phone", ""),
         bgcolor=BG_SURFACE, border_color=BORDER, border_radius=8, text_size=14)
     password = ft.TextField(label="密码", password=True, can_reveal_password=True,
         hint_text="6位以上密码", width=320,
@@ -1357,8 +1429,9 @@ def auth_page(page: ft.Page):
             if ph not in users or users[ph] != _hash(pw):
                 status.value = "手机号或密码错误"
                 page.update(); return
+            # 记住密码
             if remember_me.value:
-                _set_cfg("last_phone", ph)
+                _save_config_val("last_phone", ph)
             status.value = "✅ 登录成功"
             status.color = "#34D399"
             page.update()
@@ -1415,5 +1488,7 @@ def auth_page(page: ft.Page):
     )
 
 
+
+
 if __name__ == "__main__":
-    ft.app(target=auth_page)
+    ft.app(target=main)
