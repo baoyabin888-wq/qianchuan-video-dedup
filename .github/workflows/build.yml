@@ -35,7 +35,7 @@ jobs:
       
       - name: Build EXE (Flet v3.1)
         run: |
-          pyinstaller --onefile --windowed --name "千川视频工具箱" `
+          pyinstaller --onefile --windowed --name "电商工具箱" `
             --add-binary "ffmpeg.exe;." `
             --add-binary "yt-dlp.exe;." `
             --hidden-import flet `
@@ -54,5 +54,5 @@ jobs:
       - name: Upload Installer
         uses: actions/upload-artifact@v4
         with:
-          name: 千川视频工具箱_Setup
-          path: Output/千川视频工具箱_Setup.exe
+          name: 电商工具箱_Setup
+          path: Output/电商工具箱_Setup.exe
