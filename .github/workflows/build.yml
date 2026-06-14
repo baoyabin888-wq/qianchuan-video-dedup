@@ -1,0 +1,58 @@
+name: Build Windows Installer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller flet flet-desktop openai-whisper
+      
+      - name: Download FFmpeg
+        run: |
+          curl -L -o ffmpeg.zip "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          7z x ffmpeg.zip -offmpeg_dir
+          move ffmpeg_dir\ffmpeg-*\bin\ffmpeg.exe .
+      
+      - name: Download yt-dlp
+        run: |
+          curl -L -o yt-dlp.exe "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+      
+      - name: Build EXE (Flet v3.1)
+        run: |
+          pyinstaller --onefile --windowed --name "千川视频工具箱" `
+            --add-binary "ffmpeg.exe;." `
+            --add-binary "yt-dlp.exe;." `
+            --hidden-import flet `
+            --hidden-import flet_desktop `
+            --hidden-import whisper `
+            --hidden-import torch `
+            --collect-all flet `
+            --collect-all flet_desktop `
+            video_toolbox_flet.py
+      
+      - name: Build Installer
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+        with:
+          path: installer.iss
+      
+      - name: Upload Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: 千川视频工具箱_Setup
+          path: Output/千川视频工具箱_Setup.exe

@@ -1,5 +1,5 @@
 """
-千川视频批量去重 v2.1 — 拖拽/表格/进度/导出
+千川视频批量去重 v2.5 — 拖拽/表格/进度/导出
 """
 import os, sys, random, subprocess, json, threading, re, time
 from pathlib import Path
@@ -51,7 +51,10 @@ def op_crop(inp, out, cb):
 
 def op_black(inp, out, cb):
     cb("首尾黑帧")
-    run_ffmpeg([FFMPEG,"-y","-f","lavfi","-i","color=black:s=1080x1920:d=0.05,r=24","-i",inp,"-f","lavfi","-i","color=black:s=1080x1920:d=0.05,r=24","-filter_complex","[0:v][1:v][1:a][2:v]concat=n=3:v=1:a=1[outv][outa]","-map","[outv]","-map","[outa]","-c:v","libx264","-preset","ultrafast","-crf","23","-c:a","aac","-b:a","128k","-shortest",out])
+    probe = subprocess.run([FFMPEG,"-i",inp], capture_output=True, text=True)
+    m = re.search(r'(\d+)x(\d+)', probe.stderr)
+    w, h = (int(m.group(1)), int(m.group(2))) if m else (1080, 1920)
+    run_ffmpeg([FFMPEG,"-y","-f","lavfi","-i",f"color=black:s={w}x{h}:d=0.05,r=24","-i",inp,"-f","lavfi","-i",f"color=black:s={w}x{h}:d=0.05,r=24","-filter_complex","[0:v][1:v][1:a][2:v]concat=n=3:v=1:a=1[outv][outa]","-map","[outv]","-map","[outa]","-c:v","libx264","-preset","ultrafast","-crf","23","-c:a","aac","-b:a","128k","-shortest",out])
 
 OPERATIONS = [
     ("变速", op_speed),
@@ -62,7 +65,7 @@ OPERATIONS = [
     ("首尾黑帧", op_black),
 ]
 
-INTENSITY_MAP = {"轻度": 2, "标准": 4, "重度": 6}
+INTENSITY_MAP = {"标准": 3, "重度": 5}
 
 # === 批量处理引擎 ===
 def process_one(video_path, output_dir, intensity, progress_cb):
@@ -70,6 +73,11 @@ def process_one(video_path, output_dir, intensity, progress_cb):
     ext = Path(video_path).suffix or ".mp4"
     n = min(INTENSITY_MAP[intensity], len(OPERATIONS))
     ops = random.sample(OPERATIONS, n)
+    
+    # Clean any leftover tmp files from previous runs
+    for old_tmp in Path(output_dir).glob(f"_tmp_{name}_*{ext}"):
+        try: old_tmp.unlink()
+        except: pass
     
     tmp = video_path
     tmp_files = []
@@ -86,13 +94,15 @@ def process_one(video_path, output_dir, intensity, progress_cb):
         except Exception as e:
             progress_cb(f"❌ {op_name}: {str(e)[:50]}")
             ops_used.append(f"⚠{op_name}")
+            break  # 失败后不继续，避免浪费
     
     final = os.path.join(output_dir, f"{name}_去重{ext}")
-    if tmp != video_path:
+    if tmp != video_path and os.path.exists(tmp):
         os.replace(tmp, final)
     for tf in tmp_files:
-        if os.path.exists(tf) and tf != final:
-            os.remove(tf)
+        if os.path.exists(tf):
+            try: os.remove(tf)
+            except: pass
     
     return {"status": "done", "ops": ops_used}
 
@@ -100,9 +110,24 @@ def process_one(video_path, output_dir, intensity, progress_cb):
 class DedupApp:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("千川视频批量去重 v2.1")
+        self.root.title("千川视频批量去重 v2.5")
         self.root.geometry("820x620")
         self.root.minsize(700, 500)
+        
+        # Try to enable drag-drop with tkinterdnd2
+        self._dnd = False
+        try:
+            from tkinterdnd2 import TkinterDnD
+            self.root.destroy()  # 关掉已创建的窗口
+            self.root = TkinterDnD.Tk()
+            self.root.title("千川视频批量去重 v2.5")
+            self.root.geometry("820x620")
+            self.root.minsize(700, 500)
+            self.root.drop_target_register("*")
+            self.root.dnd_bind('<<Drop>>', self._on_drop)
+            self._dnd = True
+        except ImportError:
+            pass
         
         self.output_dir = tk.StringVar(value=os.path.join(os.path.expanduser("~"), "Desktop", "去重输出"))
         self.intensity = tk.StringVar(value="标准")
@@ -115,8 +140,9 @@ class DedupApp:
         self.build_ui()
     
     def build_ui(self):
-        # === 顶部: 拖拽区域 ===
-        drop_frame = ttk.LabelFrame(self.root, text="视频来源", padding=5)
+        # === 顶部: 视频来源 ===
+        dnd_text = "视频来源 （拖拽文件/文件夹到窗口 或 点击按钮）" if self._dnd else "视频来源 （点击下方按钮添加）"
+        drop_frame = ttk.LabelFrame(self.root, text=dnd_text, padding=5)
         drop_frame.pack(fill="x", padx=10, pady=(10,5))
         
         btn_bar = ttk.Frame(drop_frame)
@@ -161,8 +187,10 @@ class DedupApp:
         ttk.Button(ctrl, text="选择", command=self.select_output).pack(side="left")
         ttk.Separator(ctrl, orient="vertical").pack(side="left", padx=10, fill="y")
         ttk.Label(ctrl, text="强度:").pack(side="left")
-        for v in ["轻度","标准","重度"]:
-            ttk.Radiobutton(ctrl, text=v, variable=self.intensity, value=v).pack(side="left", padx=3)
+        for v, desc in [("标准","3项 | 肉眼不可见"), ("重度","5项 | 最大去重")]:
+            rb = ttk.Radiobutton(ctrl, text=v, variable=self.intensity, value=v)
+            rb.pack(side="left", padx=3)
+            ttk.Label(ctrl, text=f"({desc})", foreground="gray").pack(side="left")
         
         # 进度条
         prog = ttk.Frame(bottom)
@@ -194,6 +222,24 @@ class DedupApp:
         d = filedialog.askdirectory(title="选择视频文件夹")
         if not d:
             return
+        exts = {'.mp4','.MP4','.mov','.MOV','.avi','.AVI','.mkv','.MKV'}
+        for p in sorted(Path(d).iterdir()):
+            if p.suffix in exts:
+                self._add_file(str(p))
+    
+    def _on_drop(self, event):
+        """处理拖拽文件/文件夹"""
+        # tkinterdnd2 passes file paths in event.data, one per line
+        paths = event.data.strip().split()
+        for p in paths:
+            p = p.strip('{}')  # Windows paths might be wrapped in {}
+            path = Path(p)
+            if path.is_file() and path.suffix.lower() in {'.mp4','.mov','.avi','.mkv'}:
+                self._add_file(str(path))
+            elif path.is_dir():
+                self.add_folder_path(str(path))
+    
+    def add_folder_path(self, d):
         exts = {'.mp4','.MP4','.mov','.MOV','.avi','.AVI','.mkv','.MKV'}
         for p in sorted(Path(d).iterdir()):
             if p.suffix in exts:
@@ -253,30 +299,35 @@ class DedupApp:
         outdir = self.output_dir.get()
         os.makedirs(outdir, exist_ok=True)
         
-        self.update_status(path, "🔄 准备中", "")
-        start_time = time.time()
-        last_op = [""]
+        self.update_status(path, "🔄 处理中", "启动...")
+        intensity = self.intensity.get()
+        start_time = [time.time()]  # 用列表以便在线程内修改
         
         def cb(msg):
-            last_op[0] = msg
             self.root.after(0, lambda: self.update_status(path, "🔄 处理中", msg))
         
-        def done_wrapper():
-            elapsed = time.time() - start_time
-            self.times.append(elapsed)
-            return process_one(path, outdir, self.intensity.get(), cb)
+        def worker():
+            try:
+                result = process_one(path, outdir, intensity, cb)
+                result["_elapsed"] = time.time() - start_time[0]
+                self.root.after(0, lambda: self._on_result(path, result))
+            except Exception as e:
+                self.root.after(0, lambda: self._on_result(path, {"status": "error", "ops": [f"❌{str(e)[:30]}"]}))
         
-        t = threading.Thread(target=lambda: self._handle_result(path, done_wrapper()))
+        t = threading.Thread(target=worker)
         t.daemon = True
         t.start()
-    
-    def _handle_result(self, path, result):
-        self.root.after(0, lambda: self._on_result(path, result))
     
     def _on_result(self, path, result):
         ops = result["ops"]
         if result["status"] == "done":
             self.update_status(path, "✅ 完成", ", ".join(ops))
+        else:
+            self.update_status(path, "❌ 失败", ", ".join(ops))
+        
+        elapsed = result.get("_elapsed", 0)
+        if elapsed > 0:
+            self.times.append(elapsed)
         self.completed += 1
         self.current_idx += 1
         self.progress_bar["value"] = self.completed
@@ -295,6 +346,11 @@ class DedupApp:
             messagebox.showwarning("提示", "请先添加视频文件")
             return
         
+        # Clean ALL leftover _tmp files from output directory
+        outdir = self.output_dir.get()
+        os.makedirs(outdir, exist_ok=True)
+        self._clean_tmp_files()
+        
         self.running = True
         self.completed = 0
         self.current_idx = 0
@@ -311,6 +367,17 @@ class DedupApp:
         self.start_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
         self.progress_label.config(text="已停止")
+        # Clean up tmp files on stop too
+        self._clean_tmp_files()
+    
+    def _clean_tmp_files(self):
+        """Delete all _tmp_* files in output directory."""
+        try:
+            outdir = self.output_dir.get()
+            for f in Path(outdir).glob("_tmp_*"):
+                try: f.unlink()
+                except: pass
+        except: pass
     
     def finish(self):
         self.running = False
@@ -318,30 +385,25 @@ class DedupApp:
         self.stop_btn.config(state="disabled")
         self.progress_bar["value"] = len(self.files)
         self.progress_label.config(text=f"✅ 完成 {len(self.files)} 条")
-        # Auto export
-        self.export_report(silent=True)
+        # Clean up all _tmp files after batch completes
+        self._clean_tmp_files()
     
-    def export_report(self, silent=False):
+    def export_report(self):
         outdir = self.output_dir.get()
-        report = []
+        lines = [f"千川视频去重报告 - {len(self.files)} 条", "=" * 50, ""]
         for path in self.files:
             name = Path(path).name
             if path in self.file_items:
                 vals = self.tree.item(self.file_items[path], "values")
-                report.append({
-                    "file": name,
-                    "duration": vals[1],
-                    "size": vals[2],
-                    "status": vals[3],
-                    "operations": vals[4].split(", ") if vals[4] else []
-                })
+                lines.append(f"📹 {name}")
+                lines.append(f"   时长: {vals[1]}  大小: {vals[2]}")
+                lines.append(f"   状态: {vals[3]}  操作: {vals[4]}")
+                lines.append("")
         
-        path = os.path.join(outdir, "去重报告.json")
+        path = os.path.join(outdir, "去重报告.txt")
         with open(path, 'w', encoding='utf-8') as f:
-            json.dump(report, f, ensure_ascii=False, indent=2)
-        
-        if not silent:
-            messagebox.showinfo("导出完成", f"报告已保存:\n{path}")
+            f.write('\n'.join(lines))
+        messagebox.showinfo("导出完成", f"报告已保存:\n{path}")
     
     def run(self):
         self.root.mainloop()
