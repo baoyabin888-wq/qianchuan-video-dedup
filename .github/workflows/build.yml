@@ -18,24 +18,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flet==0.85.3 pyinstaller requests openai-whisper
-
-      - name: Extract Flet engine
-        shell: python
-        run: |
-          import os, tarfile
-          pkg = os.path.dirname(__import__('flet_desktop').__file__)
-          app_dir = os.path.join(pkg, 'app')
-          for f in sorted(os.listdir(app_dir)):
-            if f.endswith('.tar.gz'):
-              with tarfile.open(os.path.join(app_dir, f), 'r:gz') as tf:
-                tf.extractall('flet_engine')
-              break
+          pip install flet==0.85.3 pyinstaller
 
       - name: Build EXE with PyInstaller
         run: |
           pyinstaller --onefile --windowed --name "电商工具箱v5" `
-            --add-data "flet_engine;flet_desktop/app/flet_engine" `
+            --collect-data flet_desktop `
             --hidden-import flet --hidden-import flet_core --hidden-import flet_desktop `
             --hidden-import flet_core.file_picker --hidden-import flet_desktop.file_picker `
             --hidden-import flet_runtime `
