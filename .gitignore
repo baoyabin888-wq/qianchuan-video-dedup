@@ -4,3 +4,4 @@ __pycache__/
 *.dmg
 *_备份*
 *_bak*
+*.pyc
